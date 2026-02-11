@@ -218,32 +218,25 @@ struct TranscriptionText: View {
     let words: [String]
     let progress: Int
 
+    private var visibleText: String {
+        words.prefix(progress).joined(separator: " ")
+    }
+
     var body: some View {
-        HStack(spacing: 10) {
-            ForEach(0..<words.count, id: \.self) { index in
-                if index < progress {
-                    Text(words[index])
-                        .font(.system(size: 30, weight: .bold, design: .rounded))
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [.white, .white.opacity(0.85)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                        .shadow(color: .cyan.opacity(0.3), radius: 12)
-                        .transition(
-                            .asymmetric(
-                                insertion: .scale(scale: 0.6)
-                                    .combined(with: .opacity)
-                                    .combined(with: .offset(y: 8)),
-                                removal: .opacity
-                            )
-                        )
-                }
-            }
-        }
-        .animation(.spring(response: 0.4, dampingFraction: 0.7), value: progress)
+        Text(visibleText)
+            .font(.system(size: 32, weight: .bold, design: .rounded))
+            .foregroundStyle(
+                LinearGradient(
+                    colors: [.white, .white.opacity(0.85)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .shadow(color: .cyan.opacity(0.3), radius: 12)
+            .multilineTextAlignment(.center)
+            .lineLimit(3)
+            .contentTransition(.numericText())
+            .animation(.spring(response: 0.4, dampingFraction: 0.7), value: progress)
     }
 }
 
