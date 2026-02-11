@@ -480,9 +480,10 @@ struct CharacterGrid: View {
             }
 
             let seed = Int(elapsed * 12)
+            let count = Self.chars.count
             for row in 0..<rows {
                 for col in 0..<cols {
-                    let idx = (seed + row * 7 + col * 3) % Self.chars.count
+                    let idx = ((seed + row * 7 + col * 3) % count + count) % count
                     context.draw(resolved[idx], at: CGPoint(x: CGFloat(col) * cellW, y: CGFloat(row) * cellH))
                 }
             }
