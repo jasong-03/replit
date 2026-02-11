@@ -8,7 +8,10 @@
 //
 
 import SwiftUI
+import SwiftData
 import Combine
+import Speech
+import AVFoundation
 
 // MARK: - Data Models
 
@@ -56,13 +59,13 @@ enum UseCase: String, CaseIterable, Identifiable {
         }
     }
 
-    var transcription: [String] {
+    var placeholder: String {
         switch self {
-        case .alarm: ["Hey,", "set", "an", "alarm", "for", "9:45", "AM", "tomorrow", "morning", "—", "morning", "run", "routine"]
-        case .meeting: ["Prep", "for", "interview", "Friday", "2pm:", "research", "company,", "prepare", "questions,", "update", "portfolio."]
-        case .mood: ["I", "feel", "anxious", "today.", "Work", "deadline", "is", "stressing", "me", "out.", "Note", "it."]
-        case .inbox: ["Check", "my", "inbox", "—", "3", "new", "messages.", "Create", "action", "items", "from", "them."]
-        case .schedule: ["Today:", "gym", "6pm,", "study", "2", "hours", "after", "dinner,", "remind", "me", "to", "call", "mom."]
+        case .alarm: "Try: \"Set alarm 9:45 AM morning run\""
+        case .meeting: "Try: \"Prep for interview Friday 2pm\""
+        case .mood: "Try: \"I feel anxious today\""
+        case .inbox: "Try: \"Check inbox, create action items\""
+        case .schedule: "Try: \"Gym 6pm, study after dinner\""
         }
     }
 
@@ -107,11 +110,11 @@ enum UseCase: String, CaseIterable, Identifiable {
     }
 }
 
-struct RoutineStep: Identifiable, Equatable {
-    let id: UUID
-    let title: String
-    let duration: String
-    let icon: String
+struct RoutineStep: Identifiable, Equatable, Codable {
+    var id: UUID
+    var title: String
+    var duration: String
+    var icon: String
     var isCompleted: Bool
 
     init(title: String, duration: String, icon: String, isCompleted: Bool = false) {
@@ -123,12 +126,13 @@ struct RoutineStep: Identifiable, Equatable {
     }
 }
 
-struct AlarmItem: Identifiable, Equatable {
-    let id: UUID
-    let label: String
-    let time: String
+@Model
+class AlarmItem: Identifiable {
+    var id: UUID
+    var label: String
+    var time: String
     var isOn: Bool
-    let icon: String
+    var icon: String
     var streak: Int
     var bestStreak: Int
     var completionRate: Double
@@ -154,14 +158,15 @@ struct AlarmItem: Identifiable, Equatable {
     }
 }
 
-struct MeetingItem: Identifiable, Equatable {
-    let id: UUID
-    let title: String
-    let date: String
-    let time: String
-    let icon: String
+@Model
+class MeetingItem: Identifiable {
+    var id: UUID
+    var title: String
+    var date: String
+    var time: String
+    var icon: String
     var checklist: [RoutineStep]
-    let notes: String
+    var notes: String
 
     init(title: String, date: String, time: String, icon: String = "briefcase.fill",
          checklist: [RoutineStep] = [], notes: String = "") {
@@ -171,16 +176,17 @@ struct MeetingItem: Identifiable, Equatable {
     }
 }
 
-struct MoodEntry: Identifiable, Equatable {
-    let id: UUID
-    let mood: String
-    let level: Double
-    let trigger: String
-    let suggestion: String
-    let date: Date
+@Model
+class MoodEntry: Identifiable {
+    var id: UUID
+    var mood: String
+    var level: Double
+    var trigger: String
+    var suggestion: String
+    var date: Date
     var weekMoods: [Double]
 
-    var moodIcon: String {
+    @Transient var moodIcon: String {
         switch mood.lowercased() {
         case "happy", "energized": return "sun.max.fill"
         case "calm", "good": return "leaf.fill"
@@ -189,7 +195,7 @@ struct MoodEntry: Identifiable, Equatable {
         default: return "circle.fill"
         }
     }
-    var moodColor: Color {
+    @Transient var moodColor: Color {
         if level >= 0.7 { return .green }
         if level >= 0.5 { return .yellow }
         if level >= 0.3 { return .orange }
@@ -204,14 +210,15 @@ struct MoodEntry: Identifiable, Equatable {
     }
 }
 
-struct InboxItem: Identifiable, Equatable {
-    let id: UUID
-    let source: String
-    let sourceIcon: String
-    let priority: String
+@Model
+class InboxItem: Identifiable {
+    var id: UUID
+    var source: String
+    var sourceIcon: String
+    var priority: String
     var actionItems: [RoutineStep]
 
-    var completedCount: Int { actionItems.filter(\.isCompleted).count }
+    @Transient var completedCount: Int { actionItems.filter(\.isCompleted).count }
 
     init(source: String, sourceIcon: String, priority: String, actionItems: [RoutineStep] = []) {
         self.id = UUID()
@@ -220,17 +227,18 @@ struct InboxItem: Identifiable, Equatable {
     }
 }
 
-struct ScheduleBlock: Identifiable, Equatable {
-    let id: UUID
-    let title: String
-    let startTime: String
-    let endTime: String
-    let duration: String
-    let icon: String
-    let colorName: String
+@Model
+class ScheduleBlock: Identifiable {
+    var id: UUID
+    var title: String
+    var startTime: String
+    var endTime: String
+    var duration: String
+    var icon: String
+    var colorName: String
     var isCompleted: Bool
 
-    var color: Color {
+    @Transient var color: Color {
         switch colorName {
         case "blue": .blue; case "green": .green; case "purple": .purple
         case "orange": .orange; case "teal": .teal; case "red": .red
@@ -244,6 +252,19 @@ struct ScheduleBlock: Identifiable, Equatable {
         self.title = title; self.startTime = startTime; self.endTime = endTime
         self.duration = duration; self.icon = icon; self.colorName = colorName
         self.isCompleted = isCompleted
+    }
+}
+
+@Model
+class UserProfile {
+    var name: String
+    var avatarIndex: Int
+    var createdAt: Date
+
+    init(name: String, avatarIndex: Int) {
+        self.name = name
+        self.avatarIndex = avatarIndex
+        self.createdAt = Date()
     }
 }
 
@@ -262,6 +283,127 @@ enum DashboardSelection: Identifiable {
     }
 }
 
+// MARK: - Gemini Service
+
+enum GeminiService {
+    static func parse(text: String, mode: UseCase) async throws -> [String: Any] {
+        let url = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(Config.geminiApiKey, forHTTPHeaderField: "x-goog-api-key")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 10
+
+        let prompt = buildPrompt(for: mode, text: text)
+        let body: [String: Any] = [
+            "contents": [["parts": [["text": prompt]]]],
+            "generationConfig": [
+                "responseMimeType": "application/json",
+                "temperature": 0.1
+            ]
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, _) = try await URLSession.shared.data(for: request)
+        guard let response = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let candidates = response["candidates"] as? [[String: Any]],
+              let content = candidates.first?["content"] as? [String: Any],
+              let parts = content["parts"] as? [[String: Any]],
+              let jsonText = parts.first?["text"] as? String,
+              let jsonData = jsonText.data(using: .utf8),
+              let parsed = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any]
+        else { throw URLError(.badServerResponse) }
+        return parsed
+    }
+
+    private static func buildPrompt(for mode: UseCase, text: String) -> String {
+        let base = "You are a voice command parser for a personal assistant app. Parse the user's voice input into structured JSON. Be creative and helpful — fill in reasonable defaults for anything not explicitly mentioned. Use valid Apple SF Symbol names for icons."
+        let schema: String
+        switch mode {
+        case .alarm:
+            schema = """
+            Return JSON: {"label":"short alarm name","time":"HH:mm (24h)","icon":"SF Symbol name","routine":[{"title":"step name","duration":"e.g. 5 min","icon":"SF Symbol"}]} Include 2-4 routine steps relevant to the alarm context.
+            """
+        case .meeting:
+            schema = """
+            Return JSON: {"title":"meeting name","date":"day/date","time":"h:mm a","icon":"SF Symbol","checklist":[{"title":"prep step","duration":"e.g. 15 min","icon":"SF Symbol"}],"notes":"brief context/notes"} Include 2-4 checklist steps.
+            """
+        case .mood:
+            schema = """
+            Return JSON: {"mood":"one word (e.g. Anxious, Happy, Tired, Stressed, Calm, Energized)","level":0.0to1.0,"trigger":"cause","suggestion":"one helpful action"} level: 0=terrible, 1=great.
+            """
+        case .inbox:
+            schema = """
+            Return JSON: {"source":"Email/Messages/Slack/etc","sourceIcon":"SF Symbol","priority":"High/Medium/Low","actionItems":[{"title":"task","duration":"e.g. 5 min","icon":"SF Symbol"}]} Include 2-4 action items.
+            """
+        case .schedule:
+            schema = """
+            Return JSON: {"blocks":[{"title":"activity","startTime":"h:mm a","endTime":"h:mm a","duration":"e.g. 1h","icon":"SF Symbol","colorName":"blue/green/purple/orange/teal/red"}]} Include all mentioned time blocks. Estimate reasonable durations if not specified.
+            """
+        }
+        return "\(base)\n\n\(schema)\n\nVoice input: \"\(text)\""
+    }
+
+    // MARK: JSON → Model
+
+    static func alarmFromJSON(_ json: [String: Any]) -> AlarmItem {
+        let label = json["label"] as? String ?? "New Alarm"
+        let time = json["time"] as? String ?? "09:00"
+        let icon = json["icon"] as? String ?? "alarm.fill"
+        let routineData = json["routine"] as? [[String: Any]] ?? []
+        let routine = routineData.map { s in
+            RoutineStep(title: s["title"] as? String ?? "Step", duration: s["duration"] as? String ?? "5 min", icon: s["icon"] as? String ?? "checkmark")
+        }
+        return AlarmItem(label: label, time: time, isOn: true, icon: icon, routine: routine)
+    }
+
+    static func meetingFromJSON(_ json: [String: Any]) -> MeetingItem {
+        let title = json["title"] as? String ?? "Meeting"
+        let date = json["date"] as? String ?? "Today"
+        let time = json["time"] as? String ?? "2:00 PM"
+        let icon = json["icon"] as? String ?? "briefcase.fill"
+        let notes = json["notes"] as? String ?? ""
+        let checklistData = json["checklist"] as? [[String: Any]] ?? []
+        let checklist = checklistData.map { s in
+            RoutineStep(title: s["title"] as? String ?? "Step", duration: s["duration"] as? String ?? "10 min", icon: s["icon"] as? String ?? "checkmark")
+        }
+        return MeetingItem(title: title, date: date, time: time, icon: icon, checklist: checklist, notes: notes)
+    }
+
+    static func moodFromJSON(_ json: [String: Any]) -> MoodEntry {
+        let mood = json["mood"] as? String ?? "Neutral"
+        let level = json["level"] as? Double ?? 0.5
+        let trigger = json["trigger"] as? String ?? ""
+        let suggestion = json["suggestion"] as? String ?? "Take a moment to breathe"
+        return MoodEntry(mood: mood, level: level, trigger: trigger, suggestion: suggestion, weekMoods: [level, 0, 0, 0, 0, 0, 0])
+    }
+
+    static func inboxFromJSON(_ json: [String: Any]) -> InboxItem {
+        let source = json["source"] as? String ?? "Inbox"
+        let sourceIcon = json["sourceIcon"] as? String ?? "tray.fill"
+        let priority = json["priority"] as? String ?? "Medium"
+        let itemsData = json["actionItems"] as? [[String: Any]] ?? []
+        let actionItems = itemsData.map { s in
+            RoutineStep(title: s["title"] as? String ?? "Task", duration: s["duration"] as? String ?? "5 min", icon: s["icon"] as? String ?? "checkmark")
+        }
+        return InboxItem(source: source, sourceIcon: sourceIcon, priority: priority, actionItems: actionItems)
+    }
+
+    static func scheduleFromJSON(_ json: [String: Any]) -> [ScheduleBlock] {
+        let blocksData = json["blocks"] as? [[String: Any]] ?? []
+        return blocksData.map { b in
+            ScheduleBlock(
+                title: b["title"] as? String ?? "Block",
+                startTime: b["startTime"] as? String ?? "9:00 AM",
+                endTime: b["endTime"] as? String ?? "10:00 AM",
+                duration: b["duration"] as? String ?? "1h",
+                icon: b["icon"] as? String ?? "calendar",
+                colorName: b["colorName"] as? String ?? "blue"
+            )
+        }
+    }
+}
+
 // MARK: - App State
 
 class AppViewModel: ObservableObject {
@@ -270,22 +412,51 @@ class AppViewModel: ObservableObject {
     @Published var selectedAvatar: Int = 0
     @Published var selectedMode: UseCase = .alarm
     @Published var lastCreatedMode: UseCase = .alarm
-    @Published var transcriptionProgress: Int = 0
-    @Published var isPaused: Bool = false
+    @Published var transcriptionText: String = ""
+    @Published var isRecording: Bool = false
     @Published var processingProgress: Double = 0
     @Published var transcriptionDone: Bool = false
+    @Published var isParsing: Bool = false
     @Published var pendingItemId: UUID?
 
-    // Pending items (one per mode)
+    // Pending items (one per mode, not yet persisted)
     @Published var pendingAlarm: AlarmItem?
     @Published var pendingMeeting: MeetingItem?
     @Published var pendingMood: MoodEntry?
     @Published var pendingInbox: InboxItem?
     @Published var pendingScheduleBlocks: [ScheduleBlock]?
 
-    // Stored items
-    @Published var alarms: [AlarmItem] = [
-        AlarmItem(label: "Walking the dog", time: "07:30", isOn: false, icon: "figure.walk",
+    var modelContext: ModelContext?
+
+    // Speech recognition
+    private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+    private let audioEngine = AVAudioEngine()
+    private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
+    private var recognitionTask: SFSpeechRecognitionTask?
+    private var processingTimer: Timer?
+
+    // MARK: - Persistence
+
+    func loadProfile() {
+        guard let ctx = modelContext else { return }
+        let descriptor = FetchDescriptor<UserProfile>()
+        if let profile = try? ctx.fetch(descriptor).first {
+            userName = profile.name
+            selectedAvatar = profile.avatarIndex
+            phase = .dashboard
+        } else {
+            phase = .onboarding
+            seedDemoData()
+        }
+    }
+
+    func seedDemoData() {
+        guard let ctx = modelContext else { return }
+        let descriptor = FetchDescriptor<AlarmItem>()
+        guard (try? ctx.fetchCount(descriptor)) == 0 else { return }
+
+        // Preset alarms
+        ctx.insert(AlarmItem(label: "Walking the dog", time: "07:30", isOn: false, icon: "figure.walk",
             streak: 5, bestStreak: 14, completionRate: 0.78,
             weekHistory: [true, true, false, true, true, true, false],
             monthHistory: [1,1,0,1,1,1,0,1,0,1,1,1,0,1,1,1,0,1,1,1,0,1,1,0.5,1,1,0,1,1,1],
@@ -294,8 +465,8 @@ class AppViewModel: ObservableObject {
                 RoutineStep(title: "Leash up", duration: "2 min", icon: "link"),
                 RoutineStep(title: "Walk 20 min", duration: "20 min", icon: "figure.walk"),
                 RoutineStep(title: "Water bowl", duration: "1 min", icon: "drop.fill"),
-            ]),
-        AlarmItem(label: "Team standup", time: "10:00", isOn: true, icon: "person.3.fill",
+            ]))
+        ctx.insert(AlarmItem(label: "Team standup", time: "10:00", isOn: true, icon: "person.3.fill",
             streak: 21, bestStreak: 21, completionRate: 0.95,
             weekHistory: [true, true, true, true, true, true, true],
             monthHistory: [1,1,1,1,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
@@ -304,8 +475,8 @@ class AppViewModel: ObservableObject {
                 RoutineStep(title: "Open Slack", duration: "1 min", icon: "bubble.left.fill"),
                 RoutineStep(title: "Review PRs", duration: "5 min", icon: "doc.text.magnifyingglass"),
                 RoutineStep(title: "Join call", duration: "15 min", icon: "phone.fill"),
-            ]),
-        AlarmItem(label: "Lunch break", time: "12:30", isOn: false, icon: "fork.knife",
+            ]))
+        ctx.insert(AlarmItem(label: "Lunch break", time: "12:30", isOn: false, icon: "fork.knife",
             streak: 3, bestStreak: 8, completionRate: 0.62,
             weekHistory: [true, false, true, true, false, true, false],
             monthHistory: [1,0,1,0,1,1,0,0,1,1,0,1,0,1,1,0,0,1,1,0,1,0,1,1,0,1,0,0,1,0],
@@ -314,63 +485,99 @@ class AppViewModel: ObservableObject {
                 RoutineStep(title: "Stretch", duration: "3 min", icon: "figure.flexibility"),
                 RoutineStep(title: "Eat lunch", duration: "20 min", icon: "fork.knife"),
                 RoutineStep(title: "Short walk", duration: "10 min", icon: "figure.walk"),
-            ]),
-    ]
+            ]))
 
-    @Published var meetings: [MeetingItem] = [
-        MeetingItem(title: "Design Review", date: "Thursday", time: "3:00 PM", icon: "paintbrush.fill",
+        // Preset meeting
+        ctx.insert(MeetingItem(title: "Design Review", date: "Thursday", time: "3:00 PM", icon: "paintbrush.fill",
             checklist: [
                 RoutineStep(title: "Gather mockups", duration: "10 min", icon: "photo.on.rectangle"),
                 RoutineStep(title: "Review feedback", duration: "15 min", icon: "text.bubble"),
                 RoutineStep(title: "Update Figma", duration: "20 min", icon: "pencil.and.ruler"),
-            ], notes: "Focus on mobile flows. Bring latest user research."),
-    ]
+            ], notes: "Focus on mobile flows. Bring latest user research."))
 
-    @Published var moods: [MoodEntry] = [
-        MoodEntry(mood: "Energized", level: 0.85, trigger: "Good sleep",
+        // Preset moods
+        ctx.insert(MoodEntry(mood: "Energized", level: 0.85, trigger: "Good sleep",
             suggestion: "Channel energy into your top priority",
-            weekMoods: [0.7, 0.6, 0.85, 0, 0, 0, 0]),
-        MoodEntry(mood: "Calm", level: 0.65, trigger: "Morning meditation",
+            weekMoods: [0.7, 0.6, 0.85, 0, 0, 0, 0]))
+        ctx.insert(MoodEntry(mood: "Calm", level: 0.65, trigger: "Morning meditation",
             suggestion: "Great day for deep work",
-            weekMoods: [0.7, 0.65, 0, 0, 0, 0, 0]),
-    ]
+            weekMoods: [0.7, 0.65, 0, 0, 0, 0, 0]))
 
-    @Published var inboxItems: [InboxItem] = [
-        InboxItem(source: "Email", sourceIcon: "envelope.fill", priority: "Medium",
+        // Preset inbox
+        ctx.insert(InboxItem(source: "Email", sourceIcon: "envelope.fill", priority: "Medium",
             actionItems: [
                 RoutineStep(title: "Reply to team update", duration: "5 min", icon: "arrowshape.turn.up.left.fill"),
                 RoutineStep(title: "Review attachment", duration: "10 min", icon: "paperclip"),
-            ]),
-    ]
+            ]))
 
-    @Published var scheduleBlocks: [ScheduleBlock] = [
-        ScheduleBlock(title: "Focus Work", startTime: "9:00 AM", endTime: "12:00 PM", duration: "3h", icon: "brain", colorName: "blue"),
-        ScheduleBlock(title: "Lunch", startTime: "12:00 PM", endTime: "1:00 PM", duration: "1h", icon: "fork.knife", colorName: "green"),
-        ScheduleBlock(title: "Meetings", startTime: "2:00 PM", endTime: "4:00 PM", duration: "2h", icon: "person.2.fill", colorName: "purple"),
-    ]
+        // Preset schedule
+        ctx.insert(ScheduleBlock(title: "Focus Work", startTime: "9:00 AM", endTime: "12:00 PM", duration: "3h", icon: "brain", colorName: "blue"))
+        ctx.insert(ScheduleBlock(title: "Lunch", startTime: "12:00 PM", endTime: "1:00 PM", duration: "1h", icon: "fork.knife", colorName: "green"))
+        ctx.insert(ScheduleBlock(title: "Meetings", startTime: "2:00 PM", endTime: "4:00 PM", duration: "2h", icon: "person.2.fill", colorName: "purple"))
 
-    var transcriptionWords: [String] { selectedMode.transcription }
+        try? ctx.save()
+    }
 
-    private var transcriptionTimer: Timer?
-    private var processingTimer: Timer?
+    // MARK: - Voice (Speech Recognition)
 
-    // MARK: - Voice
+    func requestSpeechPermission(completion: @escaping (Bool) -> Void) {
+        SFSpeechRecognizer.requestAuthorization { status in
+            DispatchQueue.main.async { completion(status == .authorized) }
+        }
+    }
 
-    func startTranscription() {
-        transcriptionTimer?.invalidate()
-        transcriptionTimer = Timer.scheduledTimer(withTimeInterval: 0.55, repeats: true) { [weak self] timer in
-            guard let self = self, !self.isPaused else { return }
-            if self.transcriptionProgress < self.transcriptionWords.count {
-                withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
-                    self.transcriptionProgress += 1
+    func startRecording() {
+        recognitionTask?.cancel()
+        recognitionTask = nil
+        transcriptionText = ""
+        transcriptionDone = false
+
+        let audioSession = AVAudioSession.sharedInstance()
+        do {
+            try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
+            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+        } catch { return }
+
+        recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
+        guard let recognitionRequest = recognitionRequest else { return }
+        recognitionRequest.shouldReportPartialResults = true
+
+        let inputNode = audioEngine.inputNode
+        let recordingFormat = inputNode.outputFormat(forBus: 0)
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
+            recognitionRequest.append(buffer)
+        }
+
+        recognitionTask = speechRecognizer?.recognitionTask(with: recognitionRequest) { [weak self] result, error in
+            guard let self = self, self.isRecording else { return }
+            if let result = result {
+                DispatchQueue.main.async {
+                    guard self.isRecording else { return }
+                    self.transcriptionText = result.bestTranscription.formattedString
                 }
-            } else {
-                timer.invalidate()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                    withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
-                        self.transcriptionDone = true
-                    }
-                }
+            }
+        }
+
+        audioEngine.prepare()
+        do {
+            try audioEngine.start()
+            isRecording = true
+        } catch { return }
+    }
+
+    func stopRecording() {
+        guard isRecording else { return }
+        isRecording = false  // Set FIRST so callback stops updating
+        audioEngine.stop()
+        audioEngine.inputNode.removeTap(onBus: 0)
+        recognitionRequest?.endAudio()
+        recognitionTask?.cancel()
+        recognitionRequest = nil
+        recognitionTask = nil
+
+        if !transcriptionText.isEmpty {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+                transcriptionDone = true
             }
         }
     }
@@ -378,24 +585,44 @@ class AppViewModel: ObservableObject {
     func switchMode(to mode: UseCase) {
         guard mode != selectedMode else { return }
         selectedMode = mode
-        transcriptionProgress = 0
+        stopRecording()
+        transcriptionText = ""
         transcriptionDone = false
-        transcriptionTimer?.invalidate()
-        startTranscription()
+        startRecording()
     }
 
     // MARK: - Voice → Preview
 
     func confirmVoiceInput() {
-        transcriptionTimer?.invalidate()
-        switch selectedMode {
-        case .alarm: pendingAlarm = makeAlarm()
-        case .meeting: pendingMeeting = makeMeeting()
-        case .mood: pendingMood = makeMood()
-        case .inbox: pendingInbox = makeInbox()
-        case .schedule: pendingScheduleBlocks = makeSchedule()
+        stopRecording()
+        let text = transcriptionText
+        isParsing = true
+
+        Task { @MainActor in
+            defer { isParsing = false }
+
+            do {
+                let json = try await GeminiService.parse(text: text, mode: selectedMode)
+                switch selectedMode {
+                case .alarm: pendingAlarm = GeminiService.alarmFromJSON(json)
+                case .meeting: pendingMeeting = GeminiService.meetingFromJSON(json)
+                case .mood: pendingMood = GeminiService.moodFromJSON(json)
+                case .inbox: pendingInbox = GeminiService.inboxFromJSON(json)
+                case .schedule: pendingScheduleBlocks = GeminiService.scheduleFromJSON(json)
+                }
+            } catch {
+                // Fallback to hardcoded demo data
+                switch selectedMode {
+                case .alarm: pendingAlarm = makeAlarm()
+                case .meeting: pendingMeeting = makeMeeting()
+                case .mood: pendingMood = makeMood()
+                case .inbox: pendingInbox = makeInbox()
+                case .schedule: pendingScheduleBlocks = makeSchedule()
+                }
+            }
+
+            withAnimation(.spring(response: 0.8, dampingFraction: 0.82)) { phase = .preview }
         }
-        withAnimation(.spring(response: 0.8, dampingFraction: 0.82)) { phase = .preview }
     }
 
     // MARK: - Preview → Creating
@@ -423,21 +650,23 @@ class AppViewModel: ObservableObject {
     // MARK: - Saved → Dashboard
 
     func viewDashboard() {
+        guard let ctx = modelContext else { return }
         switch selectedMode {
         case .alarm:
-            if let a = pendingAlarm { alarms.append(a); pendingItemId = a.id }
+            if let a = pendingAlarm { ctx.insert(a); pendingItemId = a.id }
         case .meeting:
-            if let m = pendingMeeting { meetings.append(m); pendingItemId = m.id }
+            if let m = pendingMeeting { ctx.insert(m); pendingItemId = m.id }
         case .mood:
-            if let m = pendingMood { moods.append(m); pendingItemId = m.id }
+            if let m = pendingMood { ctx.insert(m); pendingItemId = m.id }
         case .inbox:
-            if let i = pendingInbox { inboxItems.append(i); pendingItemId = i.id }
+            if let i = pendingInbox { ctx.insert(i); pendingItemId = i.id }
         case .schedule:
             if let blocks = pendingScheduleBlocks {
-                scheduleBlocks.append(contentsOf: blocks)
+                blocks.forEach { ctx.insert($0) }
                 pendingItemId = blocks.first?.id
             }
         }
+        try? ctx.save()
         lastCreatedMode = selectedMode
         withAnimation(.spring(response: 0.9, dampingFraction: 0.82)) { phase = .dashboard }
     }
@@ -447,25 +676,36 @@ class AppViewModel: ObservableObject {
     func startNewEntry() {
         pendingAlarm = nil; pendingMeeting = nil; pendingMood = nil
         pendingInbox = nil; pendingScheduleBlocks = nil; pendingItemId = nil
-        transcriptionProgress = 0; transcriptionDone = false
-        isPaused = false; processingProgress = 0
+        transcriptionText = ""; transcriptionDone = false
+        isRecording = false; processingProgress = 0
         withAnimation(.spring(response: 0.7, dampingFraction: 0.8)) { phase = .voice }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.startTranscription() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            self.requestSpeechPermission { granted in
+                if granted { self.startRecording() }
+            }
+        }
     }
 
     func completeOnboarding() {
+        if let ctx = modelContext {
+            let profile = UserProfile(name: userName, avatarIndex: selectedAvatar)
+            ctx.insert(profile)
+            try? ctx.save()
+        }
         withAnimation(.spring(response: 0.8, dampingFraction: 0.85)) { phase = .dashboard }
     }
 
-    func togglePause() { isPaused.toggle() }
+    func finishRecording() {
+        stopRecording()
+    }
 
     func stopAndReset() {
-        transcriptionTimer?.invalidate()
+        stopRecording()
         processingTimer?.invalidate()
         withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
             phase = .dashboard
-            transcriptionProgress = 0; transcriptionDone = false
-            isPaused = false; processingProgress = 0
+            transcriptionText = ""; transcriptionDone = false
+            isRecording = false; processingProgress = 0
             pendingAlarm = nil; pendingMeeting = nil; pendingMood = nil
             pendingInbox = nil; pendingScheduleBlocks = nil
         }
@@ -519,6 +759,7 @@ class AppViewModel: ObservableObject {
 
 struct ContentView: View {
     @StateObject private var viewModel = AppViewModel()
+    @Environment(\.modelContext) private var modelContext
     @Namespace private var hero
 
     var body: some View {
@@ -551,6 +792,10 @@ struct ContentView: View {
             }
         }
         .preferredColorScheme(.light)
+        .onAppear {
+            viewModel.modelContext = modelContext
+            viewModel.loadProfile()
+        }
     }
 }
 
@@ -784,7 +1029,7 @@ struct OnboardingPhase: View {
     @FocusState private var nameFieldFocused: Bool
 
     private let taglineWords = ["Your", "AI", "Assistant"]
-    private let appName = "arc"
+    private let appName = "HabitCards"
 
     var body: some View {
         ZStack {
@@ -1026,7 +1271,7 @@ struct VoicePhase: View {
                         .foregroundColor(.black.opacity(0.15))
                 }
                 Spacer()
-                if viewModel.transcriptionProgress > 0 && !viewModel.transcriptionDone {
+                if viewModel.isRecording {
                     HStack(spacing: 6) {
                         Circle().fill(.red).frame(width: 8, height: 8)
                             .opacity(breathe ? 1 : 0.4)
@@ -1055,8 +1300,8 @@ struct VoicePhase: View {
             // Transcription card
             VStack(alignment: .leading, spacing: 0) {
                 TranscriptionText(
-                    words: viewModel.transcriptionWords,
-                    progress: viewModel.transcriptionProgress
+                    text: viewModel.transcriptionText,
+                    placeholder: viewModel.selectedMode.placeholder
                 )
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1064,15 +1309,24 @@ struct VoicePhase: View {
             .padding(24)
             .background(
                 RoundedRectangle(cornerRadius: 24)
-                    .fill(.white.opacity(viewModel.transcriptionProgress > 0 ? 0.7 : 0))
-                    .animation(.easeOut(duration: 0.5), value: viewModel.transcriptionProgress)
+                    .fill(.white.opacity(!viewModel.transcriptionText.isEmpty ? 0.7 : 0))
+                    .animation(.easeOut(duration: 0.5), value: viewModel.transcriptionText)
             )
             .matchedGeometryEffect(id: "card", in: ns)
             .padding(.horizontal, 24)
             .scaleEffect(breathe ? 1.008 : 0.995)
             .offset(y: breathe ? -1 : 1)
 
-            if viewModel.transcriptionDone {
+            if viewModel.isParsing {
+                HStack(spacing: 8) {
+                    ProgressView().tint(viewModel.selectedMode.color)
+                    Text("Parsing...")
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .foregroundColor(.black.opacity(0.5))
+                }
+                .padding(.top, 24)
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+            } else if viewModel.transcriptionDone {
                 Button(action: { viewModel.confirmVoiceInput() }) {
                     HStack(spacing: 8) {
                         Text("Continue")
@@ -1090,7 +1344,7 @@ struct VoicePhase: View {
 
             Spacer()
 
-            BarWaveform(isActive: !viewModel.isPaused && !viewModel.transcriptionDone)
+            BarWaveform(isActive: viewModel.isRecording)
                 .frame(height: 60).padding(.horizontal, 28)
                 .opacity(appeared ? 1 : 0)
                 .animation(.easeOut(duration: 0.6).delay(0.3), value: appeared)
@@ -1114,18 +1368,16 @@ struct VoicePhase: View {
 }
 
 struct TranscriptionText: View {
-    let words: [String]
-    let progress: Int
-    private var visibleText: String { words.prefix(progress).joined(separator: " ") }
+    let text: String
+    let placeholder: String
 
     var body: some View {
-        Text(visibleText)
-            .font(.system(size: 32, weight: .heavy, design: .rounded))
-            .foregroundColor(.black)
+        Text(text.isEmpty ? placeholder : text)
+            .font(.system(size: text.isEmpty ? 20 : 32, weight: text.isEmpty ? .medium : .heavy, design: .rounded))
+            .foregroundColor(text.isEmpty ? .black.opacity(0.2) : .black)
             .multilineTextAlignment(.leading)
             .lineLimit(5)
-            .contentTransition(.numericText())
-            .animation(.spring(response: 0.5, dampingFraction: 0.7), value: progress)
+            .animation(.easeOut(duration: 0.15), value: text)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -1168,21 +1420,32 @@ struct ControlBar: View {
                     .overlay(RoundedRectangle(cornerRadius: 4).fill(.white).frame(width: 14, height: 14))
             }
             Spacer()
-            Button(action: { viewModel.togglePause() }) {
-                HStack(spacing: 6) {
-                    Image(systemName: viewModel.isPaused ? "play.fill" : "pause.fill").font(.system(size: 14, weight: .bold))
-                    Text(viewModel.isPaused ? "Resume" : "Pause").font(.system(size: 15, weight: .semibold, design: .rounded))
+            if viewModel.isRecording {
+                Button(action: { viewModel.finishRecording() }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark").font(.system(size: 14, weight: .bold))
+                        Text("Done").font(.system(size: 15, weight: .semibold, design: .rounded))
+                    }
+                    .foregroundColor(.white).padding(.horizontal, 28).padding(.vertical, 12)
+                    .background(Capsule().fill(viewModel.selectedMode.color))
                 }
-                .foregroundColor(.black).padding(.horizontal, 24).padding(.vertical, 12)
-                .background(Capsule().fill(Color.yellow))
+                .transition(.opacity.combined(with: .scale(scale: 0.9)))
             }
             Spacer()
-            Button(action: {}) {
-                Circle().fill(Color.black.opacity(0.08)).frame(width: 44, height: 44)
-                    .overlay(Image(systemName: "camera.fill").font(.system(size: 16, weight: .medium)).foregroundColor(.black.opacity(0.6)))
+            if !viewModel.isRecording && !viewModel.transcriptionDone {
+                Button(action: {
+                    viewModel.requestSpeechPermission { granted in
+                        if granted { viewModel.startRecording() }
+                    }
+                }) {
+                    Circle().fill(Color.black.opacity(0.08)).frame(width: 44, height: 44)
+                        .overlay(Image(systemName: "mic.fill").font(.system(size: 16, weight: .medium)).foregroundColor(.black.opacity(0.6)))
+                }
+                .transition(.opacity)
             }
         }
         .padding(.horizontal, 28)
+        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: viewModel.isRecording)
     }
 }
 
@@ -1672,6 +1935,12 @@ struct DashboardPhase: View {
     @State private var appeared = false
     @State private var selectedItem: DashboardSelection?
 
+    @Query var alarms: [AlarmItem]
+    @Query var meetings: [MeetingItem]
+    @Query var moods: [MoodEntry]
+    @Query var inboxItems: [InboxItem]
+    @Query var scheduleBlocks: [ScheduleBlock]
+
     private var greeting: String {
         let hour = Calendar.current.component(.hour, from: Date())
         switch hour {
@@ -1717,11 +1986,11 @@ struct DashboardPhase: View {
                         .animation(.spring(response: 0.6, dampingFraction: 0.8).delay(0.1), value: appeared)
 
                     // Alarms
-                    if !viewModel.alarms.isEmpty {
-                        sectionHeader(title: "Alarms", icon: "alarm.fill", count: viewModel.alarms.count, delay: 0.15)
+                    if !alarms.isEmpty {
+                        sectionHeader(title: "Alarms", icon: "alarm.fill", count: alarms.count, delay: 0.15)
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 12) {
-                                ForEach(viewModel.alarms) { alarm in
+                                ForEach(alarms) { alarm in
                                     let isNew = alarm.id == viewModel.pendingItemId
                                     AlarmBentoCard(alarm: alarm, isHighlighted: isNew)
                                         .matchedGeometryEffect(id: isNew ? "card" : "alarm-\(alarm.id)", in: ns)
@@ -1734,11 +2003,11 @@ struct DashboardPhase: View {
                     }
 
                     // Meetings
-                    if !viewModel.meetings.isEmpty {
-                        sectionHeader(title: "Meetings", icon: "briefcase.fill", count: viewModel.meetings.count, delay: 0.25)
+                    if !meetings.isEmpty {
+                        sectionHeader(title: "Meetings", icon: "briefcase.fill", count: meetings.count, delay: 0.25)
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 12) {
-                                ForEach(viewModel.meetings) { m in
+                                ForEach(meetings) { m in
                                     let isNew = m.id == viewModel.pendingItemId
                                     MeetingBentoCard(meeting: m, isHighlighted: isNew)
                                         .matchedGeometryEffect(id: isNew ? "card" : "meet-\(m.id)", in: ns)
@@ -1751,11 +2020,11 @@ struct DashboardPhase: View {
                     }
 
                     // Moods
-                    if !viewModel.moods.isEmpty {
-                        sectionHeader(title: "Moods", icon: "heart.fill", count: viewModel.moods.count, delay: 0.35)
+                    if !moods.isEmpty {
+                        sectionHeader(title: "Moods", icon: "heart.fill", count: moods.count, delay: 0.35)
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 12) {
-                                ForEach(viewModel.moods) { m in
+                                ForEach(moods) { m in
                                     let isNew = m.id == viewModel.pendingItemId
                                     MoodBentoCard(mood: m, isHighlighted: isNew)
                                         .matchedGeometryEffect(id: isNew ? "card" : "mood-\(m.id)", in: ns)
@@ -1768,11 +2037,11 @@ struct DashboardPhase: View {
                     }
 
                     // Inbox
-                    if !viewModel.inboxItems.isEmpty {
-                        sectionHeader(title: "Inbox", icon: "tray.fill", count: viewModel.inboxItems.count, delay: 0.45)
+                    if !inboxItems.isEmpty {
+                        sectionHeader(title: "Inbox", icon: "tray.fill", count: inboxItems.count, delay: 0.45)
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 12) {
-                                ForEach(viewModel.inboxItems) { i in
+                                ForEach(inboxItems) { i in
                                     let isNew = i.id == viewModel.pendingItemId
                                     InboxBentoCard(inbox: i, isHighlighted: isNew)
                                         .matchedGeometryEffect(id: isNew ? "card" : "inbox-\(i.id)", in: ns)
@@ -1785,11 +2054,11 @@ struct DashboardPhase: View {
                     }
 
                     // Schedule
-                    if !viewModel.scheduleBlocks.isEmpty {
-                        sectionHeader(title: "Schedule", icon: "calendar", count: viewModel.scheduleBlocks.count, delay: 0.55)
+                    if !scheduleBlocks.isEmpty {
+                        sectionHeader(title: "Schedule", icon: "calendar", count: scheduleBlocks.count, delay: 0.55)
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 12) {
-                                ForEach(viewModel.scheduleBlocks) { block in
+                                ForEach(scheduleBlocks) { block in
                                     let isNew = block.id == viewModel.pendingItemId
                                     ScheduleBentoCard(block: block, isHighlighted: isNew)
                                         .matchedGeometryEffect(id: isNew ? "card" : "sched-\(block.id)", in: ns)
@@ -1820,9 +2089,9 @@ struct DashboardPhase: View {
         switch viewModel.lastCreatedMode {
         case .alarm: LargeAnalogClock()
         case .meeting: CalendarMiniWidget()
-        case .mood: MoodRingWidget(moods: viewModel.moods)
-        case .inbox: InboxRingWidget(items: viewModel.inboxItems)
-        case .schedule: DayRingWidget(blocks: viewModel.scheduleBlocks)
+        case .mood: MoodRingWidget(moods: moods)
+        case .inbox: InboxRingWidget(items: inboxItems)
+        case .schedule: DayRingWidget(blocks: scheduleBlocks)
         }
     }
 

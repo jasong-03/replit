@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import SwiftData
 
 @main
 struct replitApp: App {
@@ -13,5 +14,13 @@ struct replitApp: App {
         WindowGroup {
             ContentView()
         }
+        .modelContainer(for: [
+            UserProfile.self,
+            AlarmItem.self,
+            MeetingItem.self,
+            MoodEntry.self,
+            InboxItem.self,
+            ScheduleBlock.self,
+        ])
     }
 }
