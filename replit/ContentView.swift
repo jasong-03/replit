@@ -283,7 +283,44 @@ enum DashboardSelection: Identifiable {
     }
 }
 
-// MARK: - Gemini Service
+// MARK: - Replit Backend Service
+
+enum ReplitService {
+    static func parse(text: String, mode: UseCase) async throws -> [String: Any] {
+        let baseURL = Config.replitBackendURL
+        guard !baseURL.isEmpty else { throw URLError(.badURL) }
+        let url = URL(string: "\(baseURL)/api/parse")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(Config.replitApiKey, forHTTPHeaderField: "X-API-KEY")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 15
+
+        let body: [String: Any] = ["text": text, "mode": mode.rawValue]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, _) = try await URLSession.shared.data(for: request)
+        guard let parsed = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              parsed["error"] == nil
+        else { throw URLError(.badServerResponse) }
+        return parsed
+    }
+
+    static func saveItem(_ item: [String: Any], type: String) async throws {
+        let baseURL = Config.replitBackendURL
+        guard !baseURL.isEmpty else { return }
+        let url = URL(string: "\(baseURL)/api/\(type)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(Config.replitApiKey, forHTTPHeaderField: "X-API-KEY")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 10
+        request.httpBody = try JSONSerialization.data(withJSONObject: item)
+        let _ = try await URLSession.shared.data(for: request)
+    }
+}
+
+// MARK: - Gemini Service (Fallback)
 
 enum GeminiService {
     static func parse(text: String, mode: UseCase) async throws -> [String: Any] {
@@ -601,8 +638,19 @@ class AppViewModel: ObservableObject {
         Task { @MainActor in
             defer { isParsing = false }
 
-            do {
-                let json = try await GeminiService.parse(text: text, mode: selectedMode)
+            // Try: Replit backend → Gemini direct → hardcoded fallback
+            var json: [String: Any]?
+
+            // 1. Try Replit backend (shows Replit AI integration)
+            if let result = try? await ReplitService.parse(text: text, mode: selectedMode) {
+                json = result
+            }
+            // 2. Fallback: direct Gemini API
+            if json == nil, let result = try? await GeminiService.parse(text: text, mode: selectedMode) {
+                json = result
+            }
+
+            if let json = json {
                 switch selectedMode {
                 case .alarm: pendingAlarm = GeminiService.alarmFromJSON(json)
                 case .meeting: pendingMeeting = GeminiService.meetingFromJSON(json)
@@ -610,8 +658,8 @@ class AppViewModel: ObservableObject {
                 case .inbox: pendingInbox = GeminiService.inboxFromJSON(json)
                 case .schedule: pendingScheduleBlocks = GeminiService.scheduleFromJSON(json)
                 }
-            } catch {
-                // Fallback to hardcoded demo data
+            } else {
+                // 3. Fallback: hardcoded demo data
                 switch selectedMode {
                 case .alarm: pendingAlarm = makeAlarm()
                 case .meeting: pendingMeeting = makeMeeting()
@@ -668,7 +716,37 @@ class AppViewModel: ObservableObject {
         }
         try? ctx.save()
         lastCreatedMode = selectedMode
+        syncToReplit()
         withAnimation(.spring(response: 0.9, dampingFraction: 0.82)) { phase = .dashboard }
+    }
+
+    private func syncToReplit() {
+        Task {
+            switch selectedMode {
+            case .alarm:
+                if let a = pendingAlarm {
+                    try? await ReplitService.saveItem(["id": a.id.uuidString, "label": a.label, "time": a.time, "icon": a.icon], type: "alarms")
+                }
+            case .meeting:
+                if let m = pendingMeeting {
+                    try? await ReplitService.saveItem(["id": m.id.uuidString, "title": m.title, "date": m.date, "time": m.time], type: "meetings")
+                }
+            case .mood:
+                if let m = pendingMood {
+                    try? await ReplitService.saveItem(["id": m.id.uuidString, "mood": m.mood, "level": m.level, "trigger": m.trigger], type: "moods")
+                }
+            case .inbox:
+                if let i = pendingInbox {
+                    try? await ReplitService.saveItem(["id": i.id.uuidString, "source": i.source, "priority": i.priority], type: "inbox")
+                }
+            case .schedule:
+                if let blocks = pendingScheduleBlocks {
+                    for b in blocks {
+                        try? await ReplitService.saveItem(["id": b.id.uuidString, "title": b.title, "startTime": b.startTime, "endTime": b.endTime], type: "schedule")
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - Dashboard → Voice
