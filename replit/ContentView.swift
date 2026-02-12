@@ -287,7 +287,7 @@ enum DashboardSelection: Identifiable {
 
 enum GeminiService {
     static func parse(text: String, mode: UseCase) async throws -> [String: Any] {
-        let url = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent")!
+        let url = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue(Config.geminiApiKey, forHTTPHeaderField: "x-goog-api-key")
@@ -2073,10 +2073,7 @@ struct DashboardPhase: View {
                 }
             }
 
-            AIDock()
-                .opacity(appeared ? 1 : 0).offset(y: appeared ? 0 : 15)
-                .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.7), value: appeared)
-                .padding(.bottom, 40)
+            Spacer().frame(height: 40)
         }
         .onAppear { appeared = true }
         .onDisappear { appeared = false }
@@ -2710,27 +2707,6 @@ struct DotMatrixTime: View {
                 offsetX += 5 * dotSpacing + charGap
             }
         }.frame(height: 7 * 9)
-    }
-}
-
-struct AIDock: View {
-    var body: some View {
-        HStack(spacing: 16) {
-            DockIcon { Circle().stroke(.black.opacity(0.3), lineWidth: 2).frame(width: 20, height: 20) }
-            DockIcon { Image(systemName: "sparkle").font(.system(size: 18, weight: .medium)).foregroundColor(.black.opacity(0.4)) }
-            DockIcon { Image(systemName: "asterisk").font(.system(size: 18, weight: .medium)).foregroundColor(.black.opacity(0.4)) }
-            DockIcon { Image(systemName: "brain").font(.system(size: 18, weight: .medium)).foregroundColor(.black.opacity(0.4)) }
-            DockIcon { Image(systemName: "waveform").font(.system(size: 18, weight: .medium)).foregroundColor(.black.opacity(0.4)) }
-        }
-    }
-}
-
-struct DockIcon<Content: View>: View {
-    let content: () -> Content
-    init(@ViewBuilder content: @escaping () -> Content) { self.content = content }
-    var body: some View {
-        content().frame(width: 48, height: 48)
-            .background(Circle().fill(.white).shadow(color: .black.opacity(0.06), radius: 10, y: 4))
     }
 }
 
